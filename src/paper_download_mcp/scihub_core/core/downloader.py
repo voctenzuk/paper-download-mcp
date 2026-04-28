@@ -1405,6 +1405,7 @@ class FileDownloader:
         *,
         timeout_seconds: float | None = None,
         force_challenge_bypass: bool = False,
+        verify: bool = True,
     ) -> tuple[str | None, int | None]:
         """
         Get HTML content from a URL with automatic curl_cffi fallback on 403.
@@ -1416,7 +1417,7 @@ class FileDownloader:
             request_timeout = float(self.timeout)
             if timeout_seconds is not None:
                 request_timeout = max(1.0, float(timeout_seconds))
-            response = self.session.get(url, timeout=request_timeout)
+            response = self.session.get(url, timeout=request_timeout, verify=verify)
             self._emit_html_snapshot(
                 url=url,
                 status_code=response.status_code,
@@ -1463,6 +1464,9 @@ class FileDownloader:
                 logger.warning("curl_cffi bypass also failed for page access")
 
             return response.text, response.status_code
+        except requests.exceptions.SSLError:
+            # Surface SSL errors so callers can implement TLS-mode fallbacks.
+            raise
         except Exception as e:
             logger.error(f"Error fetching page content: {e}")
             self._emit_html_snapshot(

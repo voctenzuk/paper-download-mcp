@@ -159,8 +159,6 @@ class BasicSession:
         session = getattr(self._local, "session", None)
         if session is None:
             session = requests.Session()
-            # Avoid relying on environment proxies that can introduce flaky failures.
-            session.trust_env = False
             self._local.session = session
         return session
 
@@ -193,10 +191,6 @@ class BasicSession:
         session.headers.update({"User-Agent": self._get_user_agent_for_url(url)})
 
         parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-        if "europepmc.org" in domain or "ebi.ac.uk" in domain:
-            # Avoid flaky proxy paths for Europe PMC endpoints.
-            kwargs.setdefault("proxies", {"http": None, "https": None})
 
         headers = kwargs.get("headers")
         if headers is None:

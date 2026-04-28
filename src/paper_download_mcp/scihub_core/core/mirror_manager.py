@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
+import urllib3
 
 from ..config.mirrors import MirrorConfig
 from ..config.settings import settings
@@ -16,6 +17,16 @@ logger = get_logger(__name__)
 
 # Shorter timeout for mirror testing (mirrors should respond quickly)
 MIRROR_TEST_TIMEOUT = 5  # seconds
+
+if settings.tls_mode == "unsafe":
+    logger.warning(
+        "SCIHUB_TLS_MODE=unsafe: TLS certificate verification disabled for Sci-Hub. "
+        "Use only on trusted networks."
+    )
+# InsecureRequestWarning is suppressed only when tls_mode permits verify=False; users
+# in strict mode keep the standard urllib3 warning behavior.
+if settings.tls_mode in ("strict_then_fallback", "unsafe"):
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class MirrorManager:
@@ -206,15 +217,30 @@ class MirrorManager:
 
         return None
 
+    def _request_mirror(self, mirror: str, verify: bool) -> requests.Response:
+        return requests.get(
+            mirror,
+            timeout=MIRROR_TEST_TIMEOUT,
+            headers=self._headers,
+            verify=verify,
+        )
+
     def _test_mirror(self, mirror: str, allow_403: bool = False) -> bool:
         """Test if a mirror is accessible (uses short timeout)."""
         try:
-            response = requests.get(
-                mirror,
-                timeout=MIRROR_TEST_TIMEOUT,
-                headers=self._headers,
-                proxies={"http": None, "https": None},
-            )
+            tls_mode = settings.tls_mode
+            if tls_mode == "unsafe":
+                response = self._request_mirror(mirror, verify=False)
+            elif tls_mode == "strict_then_fallback":
+                try:
+                    response = self._request_mirror(mirror, verify=True)
+                except requests.exceptions.SSLError as e:
+                    logger.info(
+                        f"[TLS] {mirror} cert verification failed ({e}); retrying with verify=False"
+                    )
+                    response = self._request_mirror(mirror, verify=False)
+            else:
+                response = self._request_mirror(mirror, verify=True)
             if response.status_code == 200:
                 if ContentParser._looks_like_scihub_block_page(response.text):
                     logger.warning(f"BLOCKED: {mirror} returned a non-PDF Sci-Hub block page")

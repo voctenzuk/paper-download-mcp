@@ -2,9 +2,13 @@
 Application settings and configuration for Sci-Hub CLI.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+_VALID_TLS_MODES = ("strict", "strict_then_fallback", "unsafe")
+_DEFAULT_TLS_MODE = "strict_then_fallback"
 
 
 class Settings:
@@ -43,6 +47,19 @@ class Settings:
             os.getenv("SCIHUB_ENABLE_ROUTING", str(self.ENABLE_YEAR_ROUTING)).lower() == "true"
         )
 
+        tls_mode = os.getenv("SCIHUB_TLS_MODE", _DEFAULT_TLS_MODE).lower()
+        if tls_mode not in _VALID_TLS_MODES:
+            logging.getLogger(__name__).warning(
+                "Invalid SCIHUB_TLS_MODE=%r; expected one of %s. Falling back to %r.",
+                tls_mode,
+                _VALID_TLS_MODES,
+                _DEFAULT_TLS_MODE,
+            )
+            tls_mode = _DEFAULT_TLS_MODE
+        self.tls_mode = tls_mode
+
+        self.scihub_disable = os.getenv("SCIHUB_DISABLE", "false").lower() == "true"
+
         # Email configuration priority:
         # 1. Environment variable (for backward compatibility)
         # 2. Config file
@@ -72,6 +89,8 @@ class Settings:
             "email": self.email,
             "year_threshold": self.year_threshold,
             "enable_year_routing": self.enable_year_routing,
+            "tls_mode": self.tls_mode,
+            "scihub_disable": self.scihub_disable,
             "log_dir": self.log_dir,
             "log_file": self.log_file,
         }
