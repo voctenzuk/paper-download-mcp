@@ -22,14 +22,15 @@ async def paper_download(
     identifiers: list[str],
     output_dir: str | None = None,
     parallel: int = DEFAULT_PARALLEL_DOWNLOADS,
-    to_markdown: bool = False,
-    md_output_dir: str | None = None,
 ) -> str:
     """
     Download one or more academic papers by DOI, arXiv ID, or URL.
     Runs with configurable parallel workers (1-50 max, default parallel=10).
     When `parallel=1`, items are processed sequentially with a 2s delay between items.
-    Optionally converts PDFs to Markdown in `md_output_dir` (default: `<output_dir>/md`).
+
+    PDFs only — markdown conversion is intentionally not exposed here. Convert
+    downloaded PDFs via the `docling` MCP server (better quality on 2-column
+    journal layouts than pymupdf4llm).
 
     Source behavior:
     - arXiv IDs: arXiv is prioritized first.
@@ -42,8 +43,6 @@ async def paper_download(
         identifiers: List of DOIs, arXiv IDs, or URLs
         output_dir: Save directory (default runtime fallback: `PAPER_DOWNLOAD_OUTPUT_DIR` or `./downloads`)
         parallel: Number of concurrent downloads (1-50, default: 10)
-        to_markdown: Convert downloaded PDFs to Markdown (default: False)
-        md_output_dir: Directory for generated Markdown files (default: '<output_dir>/md')
 
     Returns:
         Markdown summary with statistics, successes, and failures
@@ -78,8 +77,8 @@ async def paper_download(
         identifiers=identifiers,
         output_dir=output_dir,
         parallel=parallel,
-        to_markdown=to_markdown,
-        md_output_dir=md_output_dir,
+        to_markdown=False,
+        md_output_dir=None,
         delay_seconds=BATCH_DELAY_SECONDS,
     )
 

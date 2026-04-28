@@ -17,10 +17,10 @@ def test_paper_download_signature_defaults():
     assert "identifier" not in signature.parameters
     assert "parallel" in signature.parameters
     assert signature.parameters["parallel"].default == 10
-    assert "to_markdown" in signature.parameters
-    assert signature.parameters["to_markdown"].default is False
-    assert "md_output_dir" in signature.parameters
-    assert signature.parameters["md_output_dir"].default is None
+    # Markdown conversion is intentionally not exposed in this fork — use the
+    # `docling` MCP server for PDF -> Markdown instead.
+    assert "to_markdown" not in signature.parameters
+    assert "md_output_dir" not in signature.parameters
     assert "output_dir" in signature.parameters
     assert signature.parameters["output_dir"].default is None
 
