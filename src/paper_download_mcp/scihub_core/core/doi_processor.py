@@ -76,12 +76,15 @@ class DOIProcessor:
 
     @classmethod
     def format_doi_for_url(cls, doi: str) -> str:
-        """Format DOI for use in Sci-Hub URL."""
-        # Replace / with @ for Sci-Hub URL format
-        formatted = doi.replace("/", "@")
-        # Handle parentheses and other special characters
-        formatted = quote(formatted, safe="@")
-        return formatted
+        """Format DOI for use in Sci-Hub URL.
+
+        Modern Sci-Hub mirrors (red, ru, su) require the literal "/" between
+        the prefix and suffix. The previous implementation replaced "/" with
+        "@", which modern mirrors don't recognize: they 302 to the homepage,
+        from which the parser then picks up the manifest/promo PDF link.
+        Keep "/" intact and only percent-encode other special characters.
+        """
+        return quote(doi, safe="/")
 
     @classmethod
     def _strip_trailing_noise(cls, value: str) -> str:
