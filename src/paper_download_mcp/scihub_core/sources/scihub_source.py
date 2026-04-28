@@ -30,11 +30,16 @@ class SciHubSource(PaperSource):
     """Sci-Hub paper source."""
 
     _FAST_FAIL_MAX_MIRRORS = 2
-    _FAST_FAIL_TOTAL_BUDGET_SECONDS = 12.0
-    _FAST_FAIL_PAGE_TIMEOUT_SECONDS = 5.0
+    _FAST_FAIL_TOTAL_BUDGET_SECONDS = 16.0
+    _FAST_FAIL_PAGE_TIMEOUT_SECONDS = 8.0
     _FAST_FAIL_RESCUE_MAX_MIRRORS = 4
-    _FAST_FAIL_RESCUE_TOTAL_BUDGET_SECONDS = 24.0
+    _FAST_FAIL_RESCUE_TOTAL_BUDGET_SECONDS = 32.0
     _FAST_FAIL_RESCUE_PAGE_TIMEOUT_SECONDS = 8.0
+    # Floor for per-attempt page-fetch timeout. A Sci-Hub page can legitimately
+    # take 5+ seconds; sub-8s budgets reject reachable-but-slow mirrors.
+    _PAGE_TIMEOUT_FLOOR_SECONDS = 8.0
+    # Hard cap on the number of mirrors attempted in a single get_pdf_url call.
+    _MAX_SWITCH_ATTEMPTS = 5
     _FAST_FAIL_RESCUE_PREFIXES = (
         "10.1002/",
         "10.1016/",
@@ -130,8 +135,17 @@ class SciHubSource(PaperSource):
             deadline = time.monotonic() + total_budget if fast_fail else None
             # Get working mirror (uses cache if available)
             preferred_mirror = self.mirror_manager.get_working_mirror()
-            mirrors = [preferred_mirror]
-            for mirror in self.mirror_manager.mirrors:
+
+            # Build candidate ordering: preferred first, then remaining live
+            # mirrors (non-blacklisted) in tier order. The previous version
+            # iterated all configured mirrors regardless of blacklist state,
+            # which caused failover to land on TCP-blocked hosts even when
+            # other live mirrors were available.
+            live = self.mirror_manager.get_working_mirrors()
+            mirrors: list[str] = []
+            if preferred_mirror and not self.mirror_manager.is_blacklisted(preferred_mirror):
+                mirrors.append(preferred_mirror)
+            for mirror in live:
                 if mirror not in mirrors:
                     mirrors.append(mirror)
             if fast_fail_rescue:
@@ -148,19 +162,34 @@ class SciHubSource(PaperSource):
 
                 # Keep preferred mirror first, but reorder remaining mirrors by rescue effectiveness.
                 tail = [m for m in mirrors if m != preferred_mirror]
-                mirrors = [preferred_mirror, *sorted(tail, key=_mirror_rank)]
+                mirrors = [preferred_mirror, *sorted(tail, key=_mirror_rank)] if preferred_mirror else sorted(tail, key=_mirror_rank)
             if fast_fail and len(mirrors) > max_mirrors:
                 mirrors = mirrors[:max_mirrors]
+            if len(mirrors) > self._MAX_SWITCH_ATTEMPTS:
+                mirrors = mirrors[: self._MAX_SWITCH_ATTEMPTS]
 
+            tried: set[str] = set()
             blocked_count = 0
+            attempts = 0
             for mirror in mirrors:
+                # Re-check blacklist on every iteration: prior attempts in this
+                # loop may have just blacklisted a host that was live when we
+                # built the candidate list.
+                if mirror in tried or self.mirror_manager.is_blacklisted(mirror):
+                    continue
+                tried.add(mirror)
+                attempts += 1
                 page_timeout: float | None = None
                 if deadline is not None:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         logger.info(f"[Sci-Hub] Fast-fail budget exhausted for {doi}")
                         break
-                    page_timeout = max(1.0, min(page_timeout_cap, remaining))
+                    # Floor per-attempt timeout. The previous arithmetic could
+                    # produce sub-2-second budgets on later attempts, which
+                    # rejected reachable-but-slow mirrors. Honor the floor even
+                    # if it exceeds the remaining wall-clock budget.
+                    page_timeout = max(self._PAGE_TIMEOUT_FLOOR_SECONDS, min(page_timeout_cap, remaining))
                 if mirror != preferred_mirror:
                     logger.info(f"[Sci-Hub] Switching mirror to {mirror} for {doi}")
                 download_url, page_ok, blocked = self._get_download_url_from_mirror(
@@ -180,14 +209,17 @@ class SciHubSource(PaperSource):
                     blocked_count += 1
                     self.mirror_manager.mark_failed(mirror)
 
-            if cooldown_seconds > 0 and blocked_count and blocked_count == len(mirrors):
+            if cooldown_seconds > 0 and blocked_count and blocked_count == attempts and attempts > 0:
                 self._blocked_until = time.monotonic() + cooldown_seconds
                 logger.warning(
                     "[Sci-Hub] All mirrors returned block pages; cooling down for %ss",
                     int(cooldown_seconds),
                 )
 
-            logger.warning(f"[Sci-Hub] Could not extract download URL for {doi}")
+            if attempts == 0:
+                logger.warning(f"[Sci-Hub] All known mirrors exhausted for {doi}")
+            else:
+                logger.warning(f"[Sci-Hub] Could not extract download URL for {doi}")
             return None
 
         except Exception as e:
