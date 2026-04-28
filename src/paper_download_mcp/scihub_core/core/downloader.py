@@ -1399,6 +1399,12 @@ class FileDownloader:
             logger.debug(f"[curl_cffi] Download failed: {e}")
             return False, str(e)
 
+    # Per-call cache of the final URL after redirects (e.g. sci-hub.red 302
+    # to sci-net.xyz). Callers that need it (currently scihub_source) read it
+    # from this attribute right after get_page_content returns. Single-thread
+    # safe per FileDownloader instance; reset on each call.
+    _last_final_url: str | None = None
+
     def get_page_content(
         self,
         url: str,
@@ -1413,11 +1419,13 @@ class FileDownloader:
         Returns:
             Tuple of (html_content, status_code)
         """
+        self._last_final_url = url
         try:
             request_timeout = float(self.timeout)
             if timeout_seconds is not None:
                 request_timeout = max(1.0, float(timeout_seconds))
             response = self.session.get(url, timeout=request_timeout, verify=verify)
+            self._last_final_url = str(getattr(response, "url", url) or url)
             self._emit_html_snapshot(
                 url=url,
                 status_code=response.status_code,

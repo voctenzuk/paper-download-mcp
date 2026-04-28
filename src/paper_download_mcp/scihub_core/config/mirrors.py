@@ -44,6 +44,11 @@ class MirrorConfig:
     # (fallback). Modern mirrors are reachable on most networks; legacy mirrors
     # are reachable on certain VPNs where the modern set is blocked. Canonical
     # meta-list: https://sci-hub.red/mirrors
+    #
+    # sci-net.ru is a sibling service that uses the same iframe-based PDF
+    # delivery architecture as sci-hub.red/.ru (HTML page → <iframe src="/storage/<hash>/<file>.pdf#...">),
+    # so the existing ContentParser handles it without modification. Useful when
+    # sci-hub.* hosts are blocked at the network level on a particular machine.
     MIRROR_TIERS = {
         MirrorTier.EASY: [  # Modern (preferred)
             "https://sci-hub.red",
@@ -51,6 +56,7 @@ class MirrorConfig:
             "https://sci-hub.st",
             "https://sci-hub.box",
             "https://sci-hub.ru",
+            "https://sci-net.ru",
         ],
         MirrorTier.HARD: [  # Legacy (fallback); may serve 403 / Cloudflare challenge
             "https://sci-hub.mk",

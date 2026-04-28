@@ -264,7 +264,11 @@ class SciHubSource(PaperSource):
             logger.warning(f"[Sci-Hub] Detected blocked mirror page for {mirror}")
             return None, True, True
 
-        download_url = self.parser.extract_download_url(html_content, mirror)
+        # If the mirror redirected (e.g. sci-hub.red -> sci-net.xyz for some
+        # paywalled DOIs), parse against the final URL so iframe /storage/
+        # paths join against the redirect target host, not the original mirror.
+        effective_base = self._effective_base_for_parsing(mirror)
+        download_url = self.parser.extract_download_url(html_content, effective_base)
         if (
             not download_url
             and doi.startswith("10.")
@@ -278,12 +282,31 @@ class SciHubSource(PaperSource):
                 force_challenge_bypass=allow_challenge_bypass,
             )
             if html_content and status_code == 200:
-                download_url = self.parser.extract_download_url(html_content, mirror)
+                effective_base = self._effective_base_for_parsing(mirror)
+                download_url = self.parser.extract_download_url(html_content, effective_base)
 
         if download_url:
             return download_url, True, False
         logger.warning(f"[Sci-Hub] Could not extract download URL for {doi} via {mirror}")
         return None, True, False
+
+    def _effective_base_for_parsing(self, requested_mirror: str) -> str:
+        """Use the final URL after redirects as the parser base, when known.
+
+        Falls back to the requested mirror if the downloader didn't track a
+        final URL or returned the same URL (no redirect happened).
+        """
+        from urllib.parse import urlparse
+        final_url = getattr(self.downloader, "_last_final_url", None)
+        if not final_url:
+            return requested_mirror
+        try:
+            parsed = urlparse(final_url)
+        except Exception:
+            return requested_mirror
+        if not parsed.scheme or not parsed.netloc:
+            return requested_mirror
+        return f"{parsed.scheme}://{parsed.netloc}"
 
     def _fetch_page_with_tls_mode(
         self,
