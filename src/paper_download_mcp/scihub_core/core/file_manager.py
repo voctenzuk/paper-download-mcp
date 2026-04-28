@@ -68,6 +68,22 @@ class FileManager:
         """Get full output path for a filename."""
         return os.path.join(self.output_dir, filename)
 
+    # Phrases unique to the Sci-Hub manifest/promo PDF that sci.bban.top and
+    # similar legacy backends serve when the requested article is not in
+    # their cache. We require >=2 token matches to avoid rejecting legitimate
+    # articles that happen to mention Sci-Hub in passing.
+    _SCIHUB_PLACEHOLDER_TOKENS = (
+        "Decentralized Science",
+        "Sci-Hub coins",
+        "Sci-Net tokenomics",
+        "Roadmap towards Open Science",
+    )
+    # Known placeholder file hashes — fast-path before invoking pypdf.
+    # Update when Sci-Hub rotates its manifest PDF.
+    _SCIHUB_PLACEHOLDER_MD5S = frozenset({
+        "724d6ba324097ba3aa1a7fc52802cd28",  # June 2025 manifest
+    })
+
     def validate_file(self, file_path: str) -> bool:
         """Validate downloaded file."""
         if not os.path.exists(file_path):
@@ -78,7 +94,48 @@ class FileManager:
             logger.warning(f"Downloaded file is suspiciously small: {file_size} bytes")
             return False
 
+        if self._looks_like_scihub_placeholder(file_path):
+            logger.warning(
+                f"Downloaded file matches Sci-Hub placeholder PDF (manifest/promo); "
+                f"treating {file_path} as failure"
+            )
+            return False
+
         return True
+
+    @classmethod
+    def _looks_like_scihub_placeholder(cls, file_path: str) -> bool:
+        """Detect Sci-Hub manifest/promo PDF served as fallback for missing articles.
+
+        Two checks:
+        1. md5 of the file against a known-placeholder blacklist (cheap, exact).
+        2. Extracted first-page text against placeholder tokens (robust to
+           rotation; requires pypdf at runtime — silently skipped if absent).
+        """
+        import hashlib
+        try:
+            with open(file_path, "rb") as fh:
+                digest = hashlib.md5(fh.read()).hexdigest()
+        except OSError:
+            return False
+        if digest in cls._SCIHUB_PLACEHOLDER_MD5S:
+            return True
+
+        try:
+            import pypdf  # type: ignore
+        except ImportError:
+            return False
+
+        try:
+            reader = pypdf.PdfReader(file_path)
+            if len(reader.pages) == 0:
+                return False
+            first_page_text = reader.pages[0].extract_text() or ""
+        except Exception:
+            return False
+
+        hits = sum(1 for tok in cls._SCIHUB_PLACEHOLDER_TOKENS if tok in first_page_text)
+        return hits >= 2
 
     def _clean_filename(self, filename: str) -> str:
         """Create a safe filename from potentially unsafe string."""

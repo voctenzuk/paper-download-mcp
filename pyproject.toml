@@ -27,6 +27,7 @@ dependencies = [
     "pymupdf4llm>=0.2.0",
     "pydantic>=2.0.0",
     "lxml>=4.9.0",
+    "pypdf>=5.0.0",
 ]
 
 [project.urls]

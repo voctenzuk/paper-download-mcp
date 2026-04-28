@@ -40,6 +40,15 @@ class ContentParser:
             return None
         soup = BeautifulSoup(html_content, "html.parser")
 
+        # citation_pdf_url meta tag: standard academic citation metadata,
+        # used by modern Sci-Hub mirrors (red/su/ru) that point at /storage/ paths.
+        meta_pdf = soup.find("meta", attrs={"name": "citation_pdf_url"})
+        if meta_pdf and meta_pdf.get("content"):
+            content = meta_pdf.get("content")
+            content = self._fix_url_format(content, base_mirror)
+            logger.debug(f"Found download via citation_pdf_url meta: {content}")
+            return self._clean_url(content)
+
         # Look for the download button (onclick attribute) on <button> or <a>
         button_pattern = r"location\.href=['\"]([^'\"]+)['\"]"
         for tag in soup.find_all(["button", "a"], onclick=re.compile(button_pattern)):
