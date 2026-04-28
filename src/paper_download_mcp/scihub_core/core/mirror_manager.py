@@ -213,7 +213,6 @@ class MirrorManager:
                 mirror,
                 timeout=MIRROR_TEST_TIMEOUT,
                 headers=self._headers,
-                proxies={"http": None, "https": None},
             )
             if response.status_code == 200:
                 if ContentParser._looks_like_scihub_block_page(response.text):
