@@ -2,6 +2,9 @@
 Sci-Hub source implementation.
 """
 
+import os
+import shutil
+import subprocess
 import time
 
 import requests
@@ -319,3 +322,86 @@ class SciHubSource(PaperSource):
         if not lowered.startswith("10."):
             return False
         return any(lowered.startswith(prefix) for prefix in cls._FAST_FAIL_RESCUE_PREFIXES)
+
+    def _download_pdf_with_curl(self, url: str, file_path: str, timeout: int = 360) -> bool:
+        """Last-resort PDF download via curl subprocess. Returns True on success.
+
+        Used when the requests/cloudscraper/curl_cffi chain fails. curl handles
+        TLS/Cloudflare quirks differently and sometimes succeeds where the
+        Python clients don't. Pattern adapted from scholar-mcp.
+        """
+        if not shutil.which("curl"):
+            logger.debug("curl not available on PATH; skipping curl fallback")
+            return False
+
+        cmd = [
+            "curl",
+            "-L",
+            "-o",
+            file_path,
+            "--connect-timeout",
+            "30",
+            "--max-time",
+            str(timeout),
+            "-f",
+            "-s",
+            "--retry",
+            "3",
+            "--retry-delay",
+            "2",
+            "-A",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            url,
+        ]
+
+        # In strict mode we never disable cert verification; the other modes already
+        # accept verify=False elsewhere, so -k is consistent with their semantics.
+        if settings.tls_mode in ("unsafe", "strict_then_fallback"):
+            cmd.insert(1, "-k")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout + 30,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning(f"curl fallback timed out for {url}")
+            return False
+        except Exception as e:
+            logger.warning(f"curl fallback failed for {url}: {e}")
+            return False
+
+        if result.returncode != 0:
+            logger.debug(
+                f"curl returned {result.returncode} for {url}: {result.stderr.strip()[:200]}"
+            )
+            return False
+
+        if not os.path.exists(file_path):
+            return False
+
+        size = os.path.getsize(file_path)
+        if size < 10000:
+            logger.debug(f"curl-downloaded file too small ({size} bytes), discarding")
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            return False
+
+        with open(file_path, "rb") as f:
+            header = f.read(4)
+        if header != b"%PDF":
+            logger.debug(
+                f"curl-downloaded file is not a PDF (header={header!r}), discarding"
+            )
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            return False
+
+        logger.info(f"curl fallback succeeded: {size} bytes -> {file_path}")
+        return True
