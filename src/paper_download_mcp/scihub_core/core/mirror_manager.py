@@ -117,6 +117,14 @@ class MirrorManager:
         )
         return True
 
+    def is_blacklisted(self, mirror: str) -> bool:
+        """Public wrapper around the blacklist check."""
+        return self._is_blacklisted(mirror)
+
+    def get_working_mirrors(self) -> list[str]:
+        """Return non-blacklisted mirrors in tier order (EASY first, then HARD)."""
+        return [m for m in self.mirrors if not self._is_blacklisted(m)]
+
     def _find_working_mirror(self) -> str:
         """Find a working mirror using tiered parallel strategy."""
         # Tier 1: Easy mirrors first (test in parallel)
