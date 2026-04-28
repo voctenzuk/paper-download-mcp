@@ -18,8 +18,6 @@ class ContentParser:
 
     _FALLBACK_MIN_SCORE = 850
     _SCIHUB_BLOCK_TOKENS = (
-        "scientific mutual aid community",
-        "you can request this article",
         "no matching proxies found",
         "please try searching the corresponding doi again",
         "you can close this page and check later if the article has been downloaded",
@@ -42,16 +40,15 @@ class ContentParser:
             return None
         soup = BeautifulSoup(html_content, "html.parser")
 
-        # Look for the download button (onclick attribute)
+        # Look for the download button (onclick attribute) on <button> or <a>
         button_pattern = r"location\.href=['\"]([^'\"]+)['\"]"
-        buttons = soup.find_all("button", onclick=re.compile(button_pattern))
-        for button in buttons:
-            onclick = button.get("onclick", "")
+        for tag in soup.find_all(["button", "a"], onclick=re.compile(button_pattern)):
+            onclick = tag.get("onclick", "")
             match = re.search(button_pattern, onclick)
             if match:
                 href = match.group(1)
                 href = self._fix_url_format(href, base_mirror)
-                logger.debug(f"Found download button (onclick): {href}")
+                logger.debug(f"Found download {tag.name} (onclick): {href}")
                 return self._clean_url(href)
 
         # Look for the download button or iframe
