@@ -550,10 +550,21 @@ class SciHubClient:
                     success = False
 
                 if "sci-hub" in candidate_url.lower():
-                    logger.warning("Sci-Hub download failed, invalidating mirror cache")
                     scihub = [
                         s for s in self.source_manager.sources.values() if s.name == "Sci-Hub"
                     ]
+                    # Last-resort curl fallback: requests/cloudscraper/curl_cffi sometimes
+                    # fail on Sci-Hub PDFs where curl succeeds (TLS fingerprinting, HTTP/2
+                    # quirks). Try it once before giving up on this candidate.
+                    if scihub and scihub[0]._download_pdf_with_curl(candidate_url, output_path):
+                        if self.file_manager.validate_file(output_path):
+                            success = True
+                            download_url = candidate_url
+                            break
+                        if os.path.exists(output_path):
+                            os.unlink(output_path)
+
+                    logger.warning("Sci-Hub download failed, invalidating mirror cache")
                     if scihub:
                         scihub[0].mirror_manager.invalidate_cache()
 
