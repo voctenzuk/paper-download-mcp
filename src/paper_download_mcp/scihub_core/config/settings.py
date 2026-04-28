@@ -58,6 +58,8 @@ class Settings:
             tls_mode = _DEFAULT_TLS_MODE
         self.tls_mode = tls_mode
 
+        self.scihub_disable = os.getenv("SCIHUB_DISABLE", "false").lower() == "true"
+
         # Email configuration priority:
         # 1. Environment variable (for backward compatibility)
         # 2. Config file
@@ -88,6 +90,7 @@ class Settings:
             "year_threshold": self.year_threshold,
             "enable_year_routing": self.enable_year_routing,
             "tls_mode": self.tls_mode,
+            "scihub_disable": self.scihub_disable,
             "log_dir": self.log_dir,
             "log_file": self.log_file,
         }

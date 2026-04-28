@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlparse
 
+from ..config.settings import settings
 from ..sources.base import PaperSource
 from ..utils.logging import get_logger
 
@@ -80,6 +81,10 @@ class SourceManager:
         Returns:
             Ordered list of sources to try
         """
+        if settings.scihub_disable:
+            exclude_sources = set(exclude_sources or set())
+            exclude_sources.add("Sci-Hub")
+
         parsed = urlparse(doi)
         is_url_input = parsed.scheme in {"http", "https"} and parsed.netloc
 
@@ -91,6 +96,7 @@ class SourceManager:
             return self._filter_chain(
                 self._build_chain(["arXiv", "Direct PDF", "PMC", "HTML Landing"]),
                 exclude_sources,
+                doi=doi,
             )
 
         # Non-URL arXiv identifiers: OA chain is still appropriate.
@@ -111,6 +117,7 @@ class SourceManager:
                     ]
                 ),
                 exclude_sources,
+                doi=doi,
             )
 
         # If the input is a URL, prefer URL-specific handlers first.
@@ -119,10 +126,14 @@ class SourceManager:
             query_lower = (parsed.query or "").lower()
             if path_lower.endswith(".pdf") or ".pdf" in query_lower:
                 logger.info("[Router] Detected direct PDF URL input, using Direct PDF only")
-                return self._filter_chain(self._build_chain(["Direct PDF"]), exclude_sources)
+                return self._filter_chain(
+                    self._build_chain(["Direct PDF"]), exclude_sources, doi=doi
+                )
             logger.info("[Router] Detected URL input, using Direct PDF -> PMC -> HTML Landing")
             return self._filter_chain(
-                self._build_chain(["Direct PDF", "PMC", "HTML Landing"]), exclude_sources
+                self._build_chain(["Direct PDF", "PMC", "HTML Landing"]),
+                exclude_sources,
+                doi=doi,
             )
 
         # Detect year if not provided and routing is enabled (Crossref only supports DOIs)
@@ -165,7 +176,7 @@ class SourceManager:
             logger.info("[Router] Detected OSTI DOI, prioritizing OSTI source")
             chain = [self.sources["OSTI"], *chain]
 
-        return self._filter_chain(chain, exclude_sources)
+        return self._filter_chain(chain, exclude_sources, doi=doi)
 
     def _build_chain(self, source_names: list[str]) -> list[PaperSource]:
         """
@@ -185,12 +196,21 @@ class SourceManager:
                 logger.warning(f"[Router] Source '{name}' not available, skipping")
         return chain
 
-    @staticmethod
     def _filter_chain(
-        chain: list[PaperSource], exclude_sources: set[str] | None
+        self,
+        chain: list[PaperSource],
+        exclude_sources: set[str] | None,
+        *,
+        doi: str | None = None,
     ) -> list[PaperSource]:
         if not exclude_sources:
             return chain
+        if (
+            settings.scihub_disable
+            and "Sci-Hub" in exclude_sources
+            and any(source.name == "Sci-Hub" for source in chain)
+        ):
+            logger.info(f"[Router] SCIHUB_DISABLE=true, skipping Sci-Hub for {doi}")
         return [source for source in chain if source.name not in exclude_sources]
 
     def get_pdf_url(self, doi: str, year: int | None = None) -> str | None:
