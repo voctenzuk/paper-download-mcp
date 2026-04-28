@@ -467,7 +467,13 @@ class SciHubClient:
         attempted_errors: list[tuple[str, str]] = []
 
         attempted_sources: set[str] = set()
-        max_fallback_rounds = 1
+        # Bumped from 1 to len(source_chain) - 1 so we can fall through
+        # OpenAlex -> Unpaywall -> Europe PMC OA/Europe PMC -> arXiv -> Sci-Hub
+        # when each upstream source returns a URL but its candidate fails to
+        # download (HTTP 5xx, 202, timeout, validation). Sci-Hub is the last
+        # rung; without enough retry rounds the cascade gives up before
+        # reaching it.
+        max_fallback_rounds = max(len(self.source_manager.sources) - 1, 1)
         fallback_round = 0
 
         while True:
@@ -1298,6 +1304,7 @@ class SciHubClient:
         return any(
             token in lowered
             for token in (
+                # publisher / CDN access controls
                 "access denied",
                 "403",
                 "html instead of pdf",
@@ -1307,6 +1314,31 @@ class SciHubClient:
                 "cloudflare",
                 "blocked",
                 "skipped challenge-heavy pdf url",
+                # upstream server errors — Europe PMC, NCBI, publisher CDNs
+                # frequently 5xx on specific PMC IDs / DOIs while OA via another
+                # source (Sci-Hub, alt mirror) still works.
+                "http 5",
+                "500",
+                "502",
+                "503",
+                "504",
+                "remotedisconnected",
+                "connection aborted",
+                "connection reset",
+                # publisher 202 (HumanKinetics, some Lippincott) — they use 202
+                # to gate downloads behind a session/cookie. Sci-Hub usually has
+                # the same article and works without that gate.
+                "http 202",
+                "202",
+                # network failures: try a different source / mirror.
+                "timeout",
+                "timed out",
+                # placeholder PDFs (Sci-Hub manifest from sci.bban.top etc.)
+                # already caught at parser/file_manager layers, but if one
+                # slips through to download with a new placeholder hash we
+                # want the cascade to try the next source rather than giving up.
+                "validation failed",
+                "placeholder",
             )
         )
 
