@@ -40,15 +40,24 @@ class MirrorTier(Enum):
 class MirrorConfig:
     """Configuration for Sci-Hub mirrors organized by difficulty."""
 
-    # Mirror configuration by difficulty level
+    # Mirror configuration by tier. EASY = modern (preferred); HARD = legacy
+    # (fallback). Modern mirrors are reachable on most networks; legacy mirrors
+    # are reachable on certain VPNs where the modern set is blocked. Canonical
+    # meta-list: https://sci-hub.red/mirrors
     MIRROR_TIERS = {
-        MirrorTier.EASY: [  # No Cloudflare protection, use basic requests
+        MirrorTier.EASY: [  # Modern (preferred)
+            "https://sci-hub.red",
+            "https://sci-hub.su",
+            "https://sci-hub.st",
+            "https://sci-hub.box",
+            "https://sci-hub.ru",
+        ],
+        MirrorTier.HARD: [  # Legacy (fallback); may serve 403 / Cloudflare challenge
             "https://sci-hub.mk",
             "https://sci-hub.ren",
             "https://sci-hub.vg",
             "https://sci-hub.ee",
         ],
-        MirrorTier.HARD: [],  # Cloudflare-protected mirrors removed by default
     }
 
     @classmethod
