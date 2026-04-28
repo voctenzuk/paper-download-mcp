@@ -4,6 +4,10 @@ Sci-Hub source implementation.
 
 import time
 
+import requests
+import urllib3
+
+from ..config.settings import settings
 from ..core.doi_processor import DOIProcessor
 from ..core.downloader import FileDownloader
 from ..core.mirror_manager import MirrorManager
@@ -12,6 +16,11 @@ from ..utils.logging import get_logger
 from .base import PaperSource
 
 logger = get_logger(__name__)
+
+# InsecureRequestWarning is suppressed only when tls_mode permits verify=False; users
+# in strict mode keep the standard urllib3 warning behavior.
+if settings.tls_mode in ("strict_then_fallback", "unsafe"):
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class SciHubSource(PaperSource):
@@ -199,7 +208,7 @@ class SciHubSource(PaperSource):
         scihub_url = f"{mirror}/{formatted_doi}"
         logger.debug(f"[Sci-Hub] Accessing: {scihub_url}")
 
-        html_content, status_code = self.downloader.get_page_content(
+        html_content, status_code = self._fetch_page_with_tls_mode(
             scihub_url,
             timeout_seconds=page_timeout,
             force_challenge_bypass=allow_challenge_bypass,
@@ -208,7 +217,7 @@ class SciHubSource(PaperSource):
             if doi.startswith("10.") and (not fast_fail or allow_fast_fail_status_fallback):
                 fallback_url = f"{mirror}/{doi}"
                 logger.debug(f"[Sci-Hub] Trying fallback: {fallback_url}")
-                html_content, status_code = self.downloader.get_page_content(
+                html_content, status_code = self._fetch_page_with_tls_mode(
                     fallback_url,
                     timeout_seconds=page_timeout,
                     force_challenge_bypass=allow_challenge_bypass,
@@ -228,7 +237,7 @@ class SciHubSource(PaperSource):
         ):
             fallback_url = f"{mirror}/{doi}"
             logger.debug(f"[Sci-Hub] Extraction failed, trying fallback: {fallback_url}")
-            html_content, status_code = self.downloader.get_page_content(
+            html_content, status_code = self._fetch_page_with_tls_mode(
                 fallback_url,
                 timeout_seconds=page_timeout,
                 force_challenge_bypass=allow_challenge_bypass,
@@ -240,6 +249,47 @@ class SciHubSource(PaperSource):
             return download_url, True, False
         logger.warning(f"[Sci-Hub] Could not extract download URL for {doi} via {mirror}")
         return None, True, False
+
+    def _fetch_page_with_tls_mode(
+        self,
+        url: str,
+        *,
+        timeout_seconds: float | None = None,
+        force_challenge_bypass: bool = False,
+    ) -> tuple[str | None, int | None]:
+        """Fetch a Sci-Hub page honoring SCIHUB_TLS_MODE."""
+        tls_mode = settings.tls_mode
+        if tls_mode == "unsafe":
+            return self.downloader.get_page_content(
+                url,
+                timeout_seconds=timeout_seconds,
+                force_challenge_bypass=force_challenge_bypass,
+                verify=False,
+            )
+        if tls_mode == "strict_then_fallback":
+            try:
+                return self.downloader.get_page_content(
+                    url,
+                    timeout_seconds=timeout_seconds,
+                    force_challenge_bypass=force_challenge_bypass,
+                    verify=True,
+                )
+            except requests.exceptions.SSLError as e:
+                logger.info(
+                    f"[Sci-Hub][TLS] {url} cert verification failed ({e}); retrying with verify=False"
+                )
+                return self.downloader.get_page_content(
+                    url,
+                    timeout_seconds=timeout_seconds,
+                    force_challenge_bypass=force_challenge_bypass,
+                    verify=False,
+                )
+        return self.downloader.get_page_content(
+            url,
+            timeout_seconds=timeout_seconds,
+            force_challenge_bypass=force_challenge_bypass,
+            verify=True,
+        )
 
     @staticmethod
     def _should_skip_fast_fail_for_low_confidence_doi(doi: str) -> bool:
