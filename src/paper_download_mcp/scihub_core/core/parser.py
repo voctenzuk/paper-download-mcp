@@ -33,8 +33,26 @@ class ContentParser:
     def __init__(self):
         pass
 
+    # Backends known to serve a Sci-Hub manifest/promo PDF instead of the
+    # requested article when the article is not in cache. URLs pointing at
+    # these hosts are treated as "no PDF found" so failover proceeds to the
+    # next mirror, avoiding successful downloads of placeholder content.
+    _PLACEHOLDER_PDF_HOSTS = (
+        "sci.bban.top",
+    )
+
     def extract_download_url(self, html_content: str, base_mirror: str) -> str | None:
         """Extract the PDF download URL from Sci-Hub HTML."""
+        url = self._extract_download_url_inner(html_content, base_mirror)
+        if url and self._is_placeholder_pdf_url(url):
+            logger.warning(
+                f"Extracted PDF URL points at known placeholder host ({url}); "
+                f"treating as no PDF found so failover can try another mirror"
+            )
+            return None
+        return url
+
+    def _extract_download_url_inner(self, html_content: str, base_mirror: str) -> str | None:
         if self._looks_like_scihub_block_page(html_content):
             logger.warning("Detected Sci-Hub block page; no PDF available")
             return None
@@ -135,6 +153,14 @@ class ContentParser:
 
         logger.warning("Could not find download URL in HTML")
         return None
+
+    @classmethod
+    def _is_placeholder_pdf_url(cls, url: str) -> bool:
+        """True for URLs known to serve Sci-Hub manifest/promo PDF placeholders."""
+        if not url:
+            return False
+        lowered = url.lower()
+        return any(host in lowered for host in cls._PLACEHOLDER_PDF_HOSTS)
 
     @classmethod
     def _looks_like_scihub_block_page(cls, html_content: str) -> bool:
