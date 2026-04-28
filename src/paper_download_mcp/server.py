@@ -51,7 +51,7 @@ def main():
 
     # Import tools to register them with the server
     # Must import before mcp.run() to ensure tools are registered
-    from .tools import download, metadata  # noqa: F401
+    from .tools import doctor, download, metadata  # noqa: F401
 
     # Run the FastMCP server with stdio transport
     mcp.run(transport="stdio")
